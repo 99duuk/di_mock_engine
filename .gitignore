@@ -1,0 +1,41 @@
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+### Windows ###
+*.db
+*.ini
+*.lnk
+desktop.ini
+
+### Python ###
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.env
+*.venv/
+env/
+venv/
+build/
+dist/
+.eggs/
+*.egg-info/
+pip-log.txt
+pip-delete-this-directory.txt
+
+### PyCharm ###
+.idea/
+
+### VS Code ###
+.vscode/
+*.code-workspace
+
+### Logs ###
+*.log
+*.log.*
+
+### Output ###
+output/
