@@ -1,5 +1,38 @@
 import cv2
 import os
+from minio import Minio
+
+
+def get_frames_from_minio(dir_path):
+    # MinIO 클라이언트 설정
+    client = Minio(
+        "localhost:9000",
+        access_key="admin",
+        secret_key="admin123",
+        secure=False  # SSL 사용 여부
+    )
+
+    bucket_name = "di-bucket"
+    directory_path = dir_path
+
+    # 해당 디렉토리의 모든 파일 가져오기
+    objects = client.list_objects(bucket_name, prefix=directory_path, recursive=True)
+
+    frames = sorted([obj.object_name for obj in objects if obj.object_name.endswith('.jpg') or obj.object_name.endswith('.png')])
+
+    # 로컬 디렉토리 준비
+    local_frames_dir = "local_frames/"+dir_path
+    os.makedirs(local_frames_dir, exist_ok=True)
+
+    # 프레임 다운로드
+    for frame in frames:
+        local_path = os.path.join(local_frames_dir, os.path.basename(frame))
+        client.fget_object(bucket_name, frame, local_path)
+    
+    return "output/"+dir_path+".avi";
+
+
+
 
 def frames_to_video(frame_dir, output_video, fps=30):
     """
@@ -14,7 +47,7 @@ def frames_to_video(frame_dir, output_video, fps=30):
         None
     """
     # 프레임 파일 목록 정렬 (프레임 순서 유지)
-    frame_files = sorted([os.path.join(frame_dir, f) for f in os.listdir(frame_dir) if f.endswith(".jpg")])
+    frame_files = sorted([os.path.join(frame_dir, f) for f in os.listdir(frame_dir) if f.endswith(".jpg") or f.endswith(".png")])
     if not frame_files:  # 프레임 파일이 없으면 오류 발생
         raise ValueError("No frames found in the directory.")
 
@@ -34,3 +67,5 @@ def frames_to_video(frame_dir, output_video, fps=30):
     # 비디오 작성 객체 해제
     out.release()
     print(f"Video saved to {output_video}")
+
+    return output_video

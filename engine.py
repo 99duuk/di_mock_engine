@@ -1,9 +1,13 @@
 from kafka import KafkaConsumer, KafkaProducer
 from interface.input_handler import download_video, load_video
 from core.video_to_frames import video_to_frames
-from core.frames_to_video import frames_to_video
+from core.frames_to_video import frames_to_video, get_frames_from_minio
 import json
 import os
+import re
+import threading
+import time
+
 
 def get_unique_dirname(dir_path):
     """
@@ -58,9 +62,16 @@ def get_output_paths(input_source, output_dir):
     """
     if input_source.startswith("http"):
         video_title = os.path.splitext(os.path.basename(input_source))[0]
+            # Windows에서 허용되지 않는 문자 제거
+        video_title = re.sub(r'[\\/*?:"<>|]', '_', video_title)
+        video_title = video_title.replace(" ", "_")  # 공백은 밑줄로 대체
+        print(video_title)
         base_name = video_title.replace(" ", "_")  # 공백을 밑줄로 대체
     else:
         base_name = os.path.splitext(os.path.basename(input_source))[0]
+
+
+
 
     # 프레임 디렉터리
     frames_output_dir = os.path.join(output_dir, f"{base_name}_frames")
@@ -117,6 +128,7 @@ def process_message(message):
     """
     Kafka 메시지를 기반으로 Mock Engine 실행.
     """
+
     input_source = message.get('url')
     operation = message.get('operation')
     output_dir = message.get('output_dir', 'output')
@@ -171,6 +183,15 @@ def process_message(message):
             "requestId": request_id
         }
 
+def safe_json_deserializer(m):
+    """JSON 메시지를 안전하게 디코딩합니다."""
+    if m is None:
+        return None
+    try:
+        return json.loads(m.decode('utf-8'))
+    except (json.JSONDecodeError, AttributeError, UnicodeDecodeError) as e:
+        print(f"[Deserialization Error] Failed to deserialize message: {m}, Error: {e}")
+        return None
 
 def consume_and_process():
     """
@@ -201,9 +222,75 @@ def consume_and_process():
         producer.send('video-processing-response', value=result)
         print(f"Sent result: {result}")
 
-if __name__ == "__main__":
-    consume_and_process()
 
+def consume_assemble_request():
+    """
+    Kafka Consumer로 메시지를 받아 Mock Engine을 실행하고 결과를 Kafka로 발행합니다.
+    """
+    consumer = KafkaConsumer(
+        'video-assemble-request',
+        bootstrap_servers='localhost:9092',
+        group_id='mock-engine-group',
+        value_deserializer=safe_json_deserializer
+    )
+
+    print("Kafka Consumer 시작. 메시지를 기다리는 중...")
+
+    for message in consumer:
+        try:
+            # 메시지 처리 로직 (예시)
+            result = {
+                "status": "success",
+                "message": "Processed successfully",
+                "frameDir": message.value
+            }
+            local_vid_path = get_frames_from_minio(message.value)
+            output_vid = frames_to_video(local_frames_dir, local_vid_path)
+            print(output_vid)
+            # 결과를 Kafka로 전송
+            # producer.send('video-processing-response', value=result)
+            print(f"[✅ Success] Sent result: {result}")
+
+        except Exception as e:
+            print(f"[❌ Error] Exception while processing message: {e}")
+            result = {
+                "status": "error",
+                "message": str(e),
+                "frameDir": message.value if message.value else None
+            }
+            print(f"[❌ Failure] Sent error result: {result}")
+
+
+def produce_assemble_response(result):
+    producer = KafkaProducer(
+        bootstrap_servers='localhost:9092',
+        value_serializer=lambda v: json.dumps(v).encode('utf-8')
+    )
+
+    producer.send('video-processing-response', value=result)
+
+
+
+
+
+
+if __name__ == "__main__":
+    # consume_frame_update()
+    thread1 = threading.Thread(target=consume_and_process, daemon=True)
+    thread2 = threading.Thread(target=consume_assemble_request, daemon=True)
+
+    thread1.start()
+    thread2.start()
+
+    try:
+        while True:
+            time.sleep(0.1)
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+        running = False
+
+    thread1.join()
+    thread2.join()
 
     # 테스트 실행
 # if __name__ == "__main__":
