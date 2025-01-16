@@ -33,3 +33,4 @@ def video_to_frames(video_path, output_dir):
     # 캡처 객체 해제
     cap.release()
     print(f"Extracted {frame_count} frames to {output_dir}")
+    return frame_count - 1

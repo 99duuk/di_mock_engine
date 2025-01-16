@@ -1,7 +1,7 @@
 from datetime import datetime
 from minio import Minio
-from minio.error import S3Error
 import os
+
 
 # MinIO 클라이언트 생성
 minio_client = Minio(
@@ -52,10 +52,6 @@ def upload_to_minio_frames(frames_dir, bucket_name, base_object_name, video_path
     if not os.path.exists(frames_dir) or not os.path.isdir(frames_dir):
         raise FileNotFoundError(f"Directory not found: {frames_dir}")
 
-    # 타임스탬프 추가
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    base_object_name_with_timestamp = f"{base_object_name}_{timestamp}"
-
     # 프레임 파일들 정렬
     frames = sorted(
         [f for f in os.listdir(frames_dir) if os.path.isfile(os.path.join(frames_dir, f))]
@@ -78,7 +74,7 @@ def upload_to_minio_frames(frames_dir, bucket_name, base_object_name, video_path
             frame_url = upload_to_minio(
                 local_path=frame_path,
                 bucket_name=bucket_name,
-                object_name=f"{base_object_name_with_timestamp}/frames/{frame}"
+                object_name=f"{base_object_name}/frames/{frame}"
             )
             successful_uploads += 1
 
@@ -107,7 +103,7 @@ def upload_to_minio_frames(frames_dir, bucket_name, base_object_name, video_path
             video_url = upload_to_minio(
                 local_path=video_path,
                 bucket_name=bucket_name,
-                object_name=f"{base_object_name_with_timestamp}/video_output.mp4"
+                object_name=f"{base_object_name}/video/video_output.mp4"
             )
             print(f"Video uploaded to MinIO: {bucket_name}/video_output.mp4")
         except Exception as e:
@@ -118,3 +114,23 @@ def upload_to_minio_frames(frames_dir, bucket_name, base_object_name, video_path
         "lastFrameUrl": last_frame_url,
         "videoUrl": video_url
     }
+
+
+
+def upload_to_bucket_or_local(local_path, bucket_name, object_name):
+    """
+    MinIO 버킷에 업로드하고 실패 시 로컬에 저장.
+
+    Args:
+        local_path (str): 업로드할 파일의 로컬 경로.
+        bucket_name (str): MinIO 버킷 이름.
+        object_name (str): MinIO 객체 이름.
+
+    Returns:
+        str: 업로드된 URL 또는 로컬 경로.
+    """
+    try:
+        return upload_to_minio(local_path, bucket_name, object_name)
+    except Exception as e:
+        print(f"Failed to upload {local_path} to bucket {bucket_name}: {e}")
+        return os.path.abspath(local_path)

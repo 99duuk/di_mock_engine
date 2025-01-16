@@ -22,6 +22,7 @@ def get_frames_from_minio(dir_path):
 
     # 로컬 디렉토리 준비
     local_frames_dir = "local_frames/"+dir_path
+    print("local_F: "+local_frames_dir)
     os.makedirs(local_frames_dir, exist_ok=True)
 
     # 프레임 다운로드
@@ -29,7 +30,7 @@ def get_frames_from_minio(dir_path):
         local_path = os.path.join(local_frames_dir, os.path.basename(frame))
         client.fget_object(bucket_name, frame, local_path)
     
-    return "output/"+dir_path+".avi";
+    return local_frames_dir,"output/"+dir_path+".mp4";
 
 
 

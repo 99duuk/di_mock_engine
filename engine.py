@@ -1,91 +1,19 @@
-from datetime import datetime
-import os
 import json
-from kafka import KafkaConsumer, KafkaProducer
-from interface.input_handler import download_video, load_video
-from interface.minio_clinet import upload_to_minio, upload_to_minio_frames
-from core.video_to_frames import video_to_frames
-from core.frames_to_video import frames_to_video, get_frames_from_minio
-import json
-import os
-import re
 import threading
 import time
 
+from kafka import KafkaConsumer, KafkaProducer
 
-def get_unique_dirname(dir_path):
-    """ 중복된 디렉터리 이름을 처리하여 고유한 이름 생성. """
-    if not os.path.exists(dir_path):
-        return dir_path
-
-    base_dir = dir_path
-    counter = 1
-    while os.path.exists(dir_path):
-        dir_path = f"{base_dir}_{counter}"
-        counter += 1
-    return dir_path
-
-
-def get_unique_filename(file_path):
-    """ 중복된 파일 이름을 처리하여 고유한 이름 생성. """
-    if not os.path.exists(file_path):
-        return file_path
-
-    base_name, ext = os.path.splitext(file_path)
-    counter = 1
-    while os.path.exists(file_path):
-        file_path = f"{base_name}_{counter}{ext}"
-        counter += 1
-    return file_path
-
-
-def get_output_paths(input_source, output_dir, request_id):
-    """
-    출력 경로를 requestId와 타임스탬프 기반으로 생성.
-
-    Args:
-        input_source (str): 입력 비디오 경로 또는 URL (파일 이름은 무시됨).
-        output_dir (str): 출력 디렉터리 경로.
-        request_id (str): 요청 ID.
-
-    Returns:
-        tuple: 다운로드된 비디오 경로, 프레임 출력 디렉터리, 병합된 비디오 출력 파일 경로.
-    """
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    base_name = f"{request_id}_{timestamp}"
-
-    frames_output_dir = get_unique_dirname(os.path.join(output_dir, f"{base_name}_frames"))
-    downloaded_video_path = get_unique_filename(os.path.join(frames_output_dir, f"{base_name}.mp4"))
-    video_output_path = get_unique_filename(os.path.join(frames_output_dir, f"{base_name}_output.mp4"))
-
-    return (
-        os.path.abspath(downloaded_video_path),
-        os.path.abspath(frames_output_dir),
-        os.path.abspath(video_output_path),
-    )
-
-
-def upload_to_bucket_or_local(local_path, bucket_name, object_name):
-    """
-    MinIO 버킷에 업로드하고 실패 시 로컬에 저장.
-
-    Args:
-        local_path (str): 업로드할 파일의 로컬 경로.
-        bucket_name (str): MinIO 버킷 이름.
-        object_name (str): MinIO 객체 이름.
-
-    Returns:
-        str: 업로드된 URL 또는 로컬 경로.
-    """
-    try:
-        return upload_to_minio(local_path, bucket_name, object_name)
-    except Exception as e:
-        print(f"Failed to upload {local_path} to bucket {bucket_name}: {e}")
-        return os.path.abspath(local_path)
+from core.frames_to_video import frames_to_video, get_frames_from_minio
+from core.video_to_frames import video_to_frames
+from interface.input_handler import download_video, load_video
+from interface.minio_clinet import upload_to_minio_frames
+from util.file_util import get_output_paths
 
 
 def process_message(message):
     """ Kafka 메시지를 처리하고 결과를 반환. """
+    print(message)
     try:
         input_source = message.get('url')
         operation = message.get('operation')
@@ -100,7 +28,8 @@ def process_message(message):
                 "requestId": request_id
             }
 
-        downloaded_video_path, frames_output_dir, video_output_path = get_output_paths(input_source, output_dir, request_id)
+        downloaded_video_path, frames_output_dir, video_output_path \
+            = get_output_paths(input_source, output_dir, request_id)
 
         if operation == "split":
             if input_source.startswith("http"):
@@ -109,7 +38,7 @@ def process_message(message):
             else:
                 video_path = load_video(input_source)
 
-            video_to_frames(video_path, frames_output_dir)
+            end_frame_sequence = video_to_frames(video_path, frames_output_dir)
             print(f"Frames saved to {frames_output_dir}")
 
             upload_result = upload_to_minio_frames(
@@ -119,12 +48,15 @@ def process_message(message):
                 video_path=None
             )
 
+            # TODO:  파일 업로드 후 삭제 로직 구현 필요함.
             return {
                 "status": "success",
                 "requestId": request_id,
                 "outputPath": frames_output_dir,
                 "firstFrameUrl": upload_result["firstFrameUrl"],
                 "lastFrameUrl": upload_result["lastFrameUrl"],
+                "startSequence": 0,
+                "endSequence": end_frame_sequence,
                 "videoUrl": None,
                 "operation": "split",
                 "message": "Frames uploaded to MinIO"
@@ -166,6 +98,7 @@ def process_message(message):
             "requestId": message.get('requestId', 'unknown')
         }
 
+
 def safe_json_deserializer(m):
     """JSON 메시지를 안전하게 디코딩합니다."""
     if m is None:
@@ -176,7 +109,9 @@ def safe_json_deserializer(m):
         print(f"[Deserialization Error] Failed to deserialize message: {m}, Error: {e}")
         return None
 
+
 def consume_and_process():
+    print("consume_and_process is starting...")
     """ Kafka Consumer로 메시지를 받아 처리하고 Kafka로 결과를 발행. """
     consumer = KafkaConsumer(
         'video-processing-requests',
@@ -226,7 +161,8 @@ def consume_assemble_request():
                 "message": "Processed successfully",
                 "frameDir": message.value
             }
-            local_vid_path = get_frames_from_minio(message.value)
+            local_frames_dir, local_vid_path = get_frames_from_minio(message.value)
+            print(local_frames_dir, local_vid_path)
             output_vid = frames_to_video(local_frames_dir, local_vid_path)
             print(output_vid)
             # 결과를 Kafka로 전송
@@ -252,27 +188,22 @@ def produce_assemble_response(result):
     producer.send('video-processing-response', value=result)
 
 
-
-
-
-
 if __name__ == "__main__":
     # consume_frame_update()
     thread1 = threading.Thread(target=consume_and_process, daemon=True)
-    thread2 = threading.Thread(target=consume_assemble_request, daemon=True)
+    # thread2 = threading.Thread(target=consume_assemble_request, daemon=True)
 
     thread1.start()
-    thread2.start()
+    # thread2.start()
 
     try:
         while True:
             time.sleep(0.1)
     except KeyboardInterrupt:
         print("\nShutting down...")
-        running = False
 
     thread1.join()
-    thread2.join()
+    # thread2.join()
 
     # 테스트 실행
 # if __name__ == "__main__":
@@ -283,5 +214,3 @@ if __name__ == "__main__":
 #     )
 
 #   https://youtu.be/GUfSHjgucts
-if __name__ == "__main__":
-    consume_and_process()
