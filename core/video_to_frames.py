@@ -4,7 +4,6 @@ from io import BytesIO
 import cv2
 import os
 
-from interface.minio_clinet import upload_memory_to_minio
 from model.timeline_message import TimelineMessage
 
 
@@ -54,7 +53,6 @@ def extract_timeline_thumbnails_to_minio(video_path, video_id):
     success, frame = cap.read()
     total_frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
     count = 0
-
     frame_metadata_list = []
     while success:
         if count % frame_rate == 0:  # 1초 간격으로 처리

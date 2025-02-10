@@ -57,7 +57,8 @@ py -3.11 -m venv venv
  pip install --break-system-packages git+https://github.com/dpkp/kafka-python.git
 ```
 
-
+### 6) face_recognition 설치 에러
+cmake를 설치해야 함. 
 
 
 

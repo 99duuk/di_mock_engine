@@ -1,5 +1,5 @@
 from minio import Minio
-
+from six import BytesIO
 
 # MinIO 클라이언트 생성
 minio_client = Minio(
@@ -32,3 +32,14 @@ def upload_to_minio(local_path, object_name):
     except Exception as e:
         print(f"Error uploading to MinIO: {e}")
         raise
+
+
+def upload_memory_to_minio(object_name, buffer):
+    byte_io = BytesIO(buffer)
+
+    minio_client.put_object(
+        bucket_name="di-bucket",
+        object_name=object_name,
+        data=byte_io,
+        length=len(buffer)
+    )

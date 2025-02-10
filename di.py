@@ -4,28 +4,14 @@ import json
 from ultralytics import YOLO
 import face_recognition
 from kafka import KafkaConsumer, KafkaProducer
-from Interface.minio_client import download_from_minio, upload_to_minio
+from interface.minio_client import download_from_minio, upload_to_minio
 from util.ffmpeg import get_frame_count_ffprobe
 import mediapipe as mp
 import subprocess
-import logging
-import sys
+
+from util.log_util import setup_logging
 
 # --------------------------------------------------------------------------------------------------------------
-
-# 로깅 설정
-def setup_logging():
-    """로깅 설정을 초기화합니다"""
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler('video_processing.log')
-        ]
-    )
-    return logging.getLogger(__name__)
-
 logger = setup_logging()
 
 # --------------------------------------------------------------------------------------------------------------
@@ -127,8 +113,8 @@ def process_video(input_path, output_path, reference_encodings, tolerance=0.55):
     with open(json_output_path, "w") as json_file:
         json.dump({"sequence": sequence_data, "total_frames": total_frames, "fps": fps}, json_file, indent=4)
 
-    print(f"📌 Processed video saved as {output_path}")
-    print(f"📌 JSON metadata saved as {json_output_path}")
+    logger.debug(f"Processed video saved as {output_path}")
+    logger.debug(f"JSON metadata saved as {json_output_path}")
 
     return json_output_path
 
@@ -476,12 +462,12 @@ def merge_videos(original_video, edited_videos, edited_frames, final_output):
 
         frame_idx += 1
 
-        #  1️⃣ edited_frame_*.jpg가 있는 경우 교체
+        # 1. edited_frame_*.jpg가 있는 경우 교체
         if frame_idx in edited_frame_map:
             edited_frame = cv2.imread(edited_frame_map[frame_idx])
             frame = cv2.resize(edited_frame, (width, height))
 
-        #  2️⃣ edited_sequence_*.mp4의 구간에 해당하면 해당 영상에서 가져와 교체
+        # 2. edited_sequence_*.mp4의 구간에 해당하면 해당 영상에서 가져와 교체
         for (start_seq, end_seq), video_path in edited_video_map.items():
             if start_seq <= frame_idx <= end_seq:
                 edit_cap = cv2.VideoCapture(video_path)
@@ -566,17 +552,17 @@ def process_kafka_message(message):
 
                 # 얼굴이 감지되지 않은 경우 오류 메시지 출력하고 스킵
                 if not encodings:
-                    print(
+                    logger.debug(
                         f"Error: Could not encode the reference image at {reference_image_path}. Skipping this image.")
                     continue  # 다음 이미지로 넘어감
 
                 # 정상적으로 얼굴이 감지된 경우 리스트에 추가
                 reference_encodings.append(encodings[0])
-                print(f"Successfully loaded face encoding from {reference_image_path}")
+                logger.debug(f"Successfully loaded face encoding from {reference_image_path}")
 
             # 모든 인코딩이 실패했을 경우 에러 반환
             if not reference_encodings:
-                print("No valid reference encodings found! Exiting process.")
+                logger.debug("No valid reference encodings found! Exiting process.")
                 return {"status": "error", "message": "No valid reference encodings available"}
 
             # 영상 처리 및 JSON 생성
@@ -594,6 +580,7 @@ def process_kafka_message(message):
                 "message": "Video processed and uploaded"
             }
 
+#TODO: 병합을 쪼갤 수 있음!! 전략패턴 또는 매서드를 분리
         # operation이 "merge"이면 최종 편집본 생성
         elif operation == "merge":
             print("🚀 최종 영상 병합 시작 (merge)")
@@ -639,8 +626,6 @@ def process_kafka_message(message):
                 if not videos and not frames:
                     logger.info("No edited frames found. Using processed.mp4 as final output.")
                     os.rename(processed_local_path, final_output_path)
-
-
 
                 # 최종 영상 병합
                 merge_videos(processed_local_path, videos, frames, final_output_path)
