@@ -1,4 +1,4 @@
+face_recognition
 opencv-python
-yt-dlp
 kafka-python
 minio

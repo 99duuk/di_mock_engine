@@ -36,6 +36,7 @@ deactivate
 ```
 
 ### 5) kafka - six package가 없다는 에러가 나오는 경우
+1. 
 해당 에러는 파이썬 버전과 카프카 라이브러리의 충돌로 추정됨...
 파이썬 버전을 3.11이하로 낮춰야함.
 파이썬 3.11 다운로드 후 아래 명령어로 3.11이 설치되어 있는지 확인
@@ -50,6 +51,11 @@ py -3.11 -m venv venv
 ```
 생성 후 가상환경 활성화
 
+2. 
+혹은 다음과 같이 kafka-pyhon을 재설치해 해결할 수도 있다.
+```cmd
+ pip install --break-system-packages git+https://github.com/dpkp/kafka-python.git
+```
 
 
 
