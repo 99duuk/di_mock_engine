@@ -1,11 +1,12 @@
 import json
 import threading
 import time
+from dataclasses import asdict
 
 from kafka import KafkaConsumer, KafkaProducer
 
 from core.frames_to_video import frames_to_video, get_frames_from_minio
-from core.video_to_frames import video_to_frames
+from core.video_to_frames import video_to_frames, extract_timeline_thumbnails_to_minio
 from interface.input_handler import download_video, load_video
 from interface.minio_clinet import upload_to_minio_frames
 from util.file_util import get_output_paths
@@ -43,6 +44,7 @@ def process_message(message):
 
             upload_result = upload_to_minio_frames(
                 frames_dir=frames_output_dir,
+                dir_name='frames',
                 bucket_name=bucket_name,
                 base_object_name=request_id,
                 video_path=None
@@ -68,6 +70,7 @@ def process_message(message):
 
             upload_result = upload_to_minio_frames(
                 frames_dir=frames_output_dir,
+                dir_name='frames',
                 bucket_name=bucket_name,
                 base_object_name=request_id,
                 video_path=video_output_path
@@ -111,8 +114,8 @@ def safe_json_deserializer(m):
 
 
 def consume_and_process():
-    print("consume_and_process is starting...")
     """ Kafka Consumer로 메시지를 받아 처리하고 Kafka로 결과를 발행. """
+    print("consume_and_process is starting...")
     consumer = KafkaConsumer(
         'video-processing-requests',
         bootstrap_servers='localhost:9092',
@@ -127,7 +130,7 @@ def consume_and_process():
 
     for message in consumer:
         try:
-            print(f"Received message: {message.value}")
+            print(f"Received mosaic message: {message.value}")
             result = process_message(message.value)
         except Exception as e:
             result = {
@@ -179,6 +182,50 @@ def consume_assemble_request():
             print(f"[❌ Failure] Sent error result: {result}")
 
 
+def consume_timeline():
+    """Kafka Consumer로 메시지를 받아 처리하고 MinIO로 결과를 업로드."""
+    print("consume_timeline is starting...")
+    consumer = KafkaConsumer(
+        'video-timeline-requests',
+        bootstrap_servers='localhost:9092',
+        group_id='mock-engine-group',
+        value_deserializer=lambda m: json.loads(m.decode('utf-8'))
+    )
+
+    for message in consumer:
+        try:
+            print(f"Received timeline message: {message.value}")
+
+            input_source = message.value.get('url')
+            bucket_name = message.value.get('bucket')
+            video_id = message.value.get('requestId', 'default')
+
+            if not input_source or not bucket_name:
+                raise ValueError("Missing input_source or bucket_name")
+
+            timeline_message = extract_timeline_thumbnails_to_minio(
+                video_path=input_source,
+                video_id=video_id,
+            )
+
+            print(timeline_message)
+            producer = KafkaProducer(
+                bootstrap_servers='localhost:9092',
+                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            )
+            producer.send(topic='video-timeline-response', value=asdict(timeline_message))
+            print(f"Processed result: {timeline_message}")
+
+        except Exception as e:
+            result = {
+                "status": "error",
+                "message": str(e),
+                "requestId": message.value.get('requestId', 'unknown')
+            }
+            print(f'error: {result}')
+
+
+
 def produce_assemble_response(result):
     producer = KafkaProducer(
         bootstrap_servers='localhost:9092',
@@ -192,9 +239,11 @@ if __name__ == "__main__":
     # consume_frame_update()
     thread1 = threading.Thread(target=consume_and_process, daemon=True)
     # thread2 = threading.Thread(target=consume_assemble_request, daemon=True)
+    thread3 = threading.Thread(target=consume_timeline, daemon=True)
 
-    thread1.start()
+    # thread1.start()
     # thread2.start()
+    thread3.start()
 
     try:
         while True:
@@ -202,8 +251,9 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nShutting down...")
 
-    thread1.join()
+    # thread1.join()
     # thread2.join()
+    thread3.join()
 
     # 테스트 실행
 # if __name__ == "__main__":

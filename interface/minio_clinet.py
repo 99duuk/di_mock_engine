@@ -1,7 +1,7 @@
-from datetime import datetime
-from minio import Minio
 import os
+from io import BytesIO
 
+from minio import Minio
 
 # MinIO 클라이언트 생성
 minio_client = Minio(
@@ -36,7 +36,17 @@ def upload_to_minio(local_path, bucket_name, object_name):
     return f"http://localhost:9000/{bucket_name}/{object_name}"
 
 
-def upload_to_minio_frames(frames_dir, bucket_name, base_object_name, video_path=None):
+def upload_memory_to_minio(object_name, buffer):
+    byte_io = BytesIO(buffer)
+
+    minio_client.put_object(
+        bucket_name="di-bucket",
+        object_name=object_name,
+        data=byte_io,
+        length=len(buffer)
+    )
+
+def upload_to_minio_frames(frames_dir, dir_name, bucket_name, base_object_name, video_path=None):
     """
     MinIO로 프레임 디렉터리 내 모든 파일 업로드 및 선택적으로 비디오 파일 업로드
 
@@ -74,7 +84,7 @@ def upload_to_minio_frames(frames_dir, bucket_name, base_object_name, video_path
             frame_url = upload_to_minio(
                 local_path=frame_path,
                 bucket_name=bucket_name,
-                object_name=f"{base_object_name}/frames/{frame}"
+                object_name=f"{base_object_name}/{dir_name}/{frame}"
             )
             successful_uploads += 1
 
