@@ -4,6 +4,7 @@ from io import BytesIO
 import cv2
 import os
 
+from interface.minio_client import upload_memory_to_minio
 from model.timeline_message import TimelineMessage
 
 
