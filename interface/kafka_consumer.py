@@ -1,8 +1,13 @@
 import json
 import threading
+from dataclasses import asdict
+
 from kafka import KafkaConsumer, KafkaProducer
 from core.original_to_processed import process_blurring_request
 from core.processed_to_final import process_finalize_request
+from model.complete_message import CompleteVideoResult
+from model.processed_message import ProcessedVideoResult
+from multiprocessing import Process
 
 # Kafka 설정
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
@@ -24,6 +29,7 @@ producer = KafkaProducer(
     bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
     value_serializer=lambda m: json.dumps(m).encode("utf-8")
 )
+
 
 def process_kafka_message(group_id, message):
     """Kafka 메시지를 처리하고 결과를 생성"""
@@ -66,24 +72,37 @@ def consume_kafka_messages(group_id, request_topic, response_topic):
         else:
             result = {"status": "error", "message": "Invalid group_id"}
 
-
         # 결과를 Kafka Producer로 응답 토픽에 전송
         send_message(response_topic, result)
 
+#
+# def start_kafka_consumers():
+#     """여러 Kafka Consumer를 개별 스레드에서 실행"""
+#     threads = []
+#
+#     for group_id, topics in KAFKA_GROUPS.items():
+#         thread = threading.Thread(
+#             target=consume_kafka_messages,
+#             args=(group_id, topics["request_topic"], topics["response_topic"]),
+#             daemon=True
+#         )
+#         threads.append(thread)
+#         thread.start()
+#         print(f"Started Kafka Consumer for {group_id}")
+#
+#     return threads
 
 def start_kafka_consumers():
-    """여러 Kafka Consumer를 개별 스레드에서 실행"""
-    threads = []
+    """여러 Kafka Consumer를 개별 프로세스로 실행"""
+    processes = []
 
     for group_id, topics in KAFKA_GROUPS.items():
-        thread = threading.Thread(
+        process = Process(
             target=consume_kafka_messages,
-            args=(group_id, topics["request_topic"], topics["response_topic"]),
-            daemon=True
+            args=(group_id, topics["request_topic"], topics["response_topic"])
         )
-        threads.append(thread)
-        thread.start()
-        print(f"Started Kafka Consumer for {group_id}")
+        processes.append(process)
+        process.start()
+        print(f"Started Kafka Consumer process for {group_id}")
 
-    return threads
-
+    return processes

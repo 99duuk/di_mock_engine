@@ -52,28 +52,28 @@ def upload_memory_to_minio(object_name, buffer):
 
 
 
-
-
-def download_stream_from_minio(object_name):
-    """MinIO에서 스트리밍으로 파일을 다운로드"""
-    try:
-        response = minio_client.get_object(BUCKET_NAME, object_name)
-        return response  # 스트리밍 객체 반환 (BytesIO 아님)
-    except Exception as e:
-        print(f"Error downloading {object_name} from MinIO: {e}")
-        raise
-
-
-def upload_stream_to_minio(object_name, file_obj, size):
-    """MinIO에 스트리밍으로 파일 업로드"""
-    try:
-        minio_client.put_object(
-            BUCKET_NAME,
-            object_name,
-            data=file_obj,
-            length=size
-        )
-        print(f"Uploaded {object_name} to MinIO")
-    except Exception as e:
-        print(f"Error uploading to MinIO: {e}")
-        raise
+#
+#
+# def download_stream_from_minio(object_name):
+#     """MinIO에서 스트리밍으로 파일을 다운로드"""
+#     try:
+#         response = minio_client.get_object(BUCKET_NAME, object_name)
+#         return response  # 스트리밍 객체 반환 (BytesIO 아님)
+#     except Exception as e:
+#         print(f"Error downloading {object_name} from MinIO: {e}")
+#         raise
+#
+#
+# def upload_stream_to_minio(object_name, file_obj, size):
+#     """MinIO에 스트리밍으로 파일 업로드"""
+#     try:
+#         minio_client.put_object(
+#             BUCKET_NAME,
+#             object_name,
+#             data=file_obj,
+#             length=size
+#         )
+#         print(f"Uploaded {object_name} to MinIO")
+#     except Exception as e:
+#         print(f"Error uploading to MinIO: {e}")
+#         raise

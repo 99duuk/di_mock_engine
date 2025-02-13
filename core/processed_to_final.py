@@ -1,14 +1,17 @@
-import os
 import json
-import cv2
+import os
 import subprocess
 
-from interface.minio_client import download_from_minio, upload_to_minio
+import cv2
+
 from core.process import mosaic
+from interface.minio_client import upload_to_minio, download_from_minio
+from model.complete_message import CompleteVideoResult
 from util.log_util import setup_logging
 from util.state_manager import state_manager
 
 logger = setup_logging()
+
 
 def process_finalize_request(message):
     """Kafka 메시지에서 merge 요청을 처리"""
@@ -51,17 +54,32 @@ def process_finalize_request(message):
 
             merge_videos(processed_local_path, videos, frames, final_output_path)
 
+            return {
+                "status": "success",
+                "video_id": uuid,
+                "finalized_video_url": f"http://localhost:9000/{bucket_name}/{uuid}/final.mp4",
+                "message": "Video finalized and uploaded"
+            }
+
+    # 최종 영상 업로드
+        if not os.path.exists(final_output_path):
+            logger.error(f"Error: Final video file not found at {final_output_path}")
+            return CompleteVideoResult(
+                status="error",
+                video_id=uuid,
+                finalized_video_url="",
+                message="Final video was not created."
+            )
         upload_to_minio(final_output_path, f"{uuid}/final.mp4")
 
-        return {
-            "status": "success",
-            "uuid": uuid,
-            "final_video_url": f"http://localhost:9000/{bucket_name}/{uuid}/final.mp4",
-            "message": "Final video merged and uploaded"
-        }
-
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return CompleteVideoResult(
+            status="error",
+            video_id=uuid,
+            finalized_video_url="",
+            message=str(e)
+        )
+
 
 # --------------------------------------------------------------------------------------------------------------
 

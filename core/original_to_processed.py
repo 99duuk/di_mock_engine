@@ -1,14 +1,17 @@
-import os
 import glob
 import json
+import os
+
 import cv2
 import face_recognition
+from minio.error import S3Error
 
-from core.process import mosaic
-from interface.minio_client import download_from_minio, upload_to_minio
-from util.ffmpeg import get_frame_count_ffprobe
-from util.model_loader import ModelLoader
 from config import logger
+from core.process import mosaic
+from interface.minio_client import minio_client, BUCKET_NAME, download_from_minio, upload_to_minio
+from model.processed_message import ProcessedVideoResult, VideoMetadata
+from util.ffmpeg import get_video_info_ffprobe
+from util.model_loader import ModelLoader
 from util.state_manager import state_manager
 
 # YOLO 및 FaceMesh 모델 가져오기
@@ -16,10 +19,42 @@ model = ModelLoader.get_yolo_model()
 mp_face_mesh = ModelLoader.get_mp_face_mesh()
 
 
+
+def download_target_images_from_minio(uuid, target_image_local_path):
+    """MinIO에서 target 폴더 내 모든 이미지 다운로드"""
+    try:
+        # MinIO 버킷 내 target 폴더의 파일 리스트 가져오기
+        objects = minio_client.list_objects(BUCKET_NAME, prefix=f"{uuid}/target/", recursive=True)
+
+        # 디렉토리 생성
+        os.makedirs(target_image_local_path, exist_ok=True)
+
+        for obj in objects:
+            if obj.is_dir:
+                continue  # 디렉토리는 건너뜀
+
+            # 개별 파일 다운로드
+            file_name = os.path.basename(obj.object_name)
+            local_file_path = os.path.join(target_image_local_path, file_name)
+            minio_client.fget_object(BUCKET_NAME, obj.object_name, local_file_path)
+
+            logger.info(f"Downloaded {obj.object_name} to {local_file_path}")
+
+    except S3Error as e:
+        logger.error(f"MinIO download error: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error while downloading target images: {e}")
+        return False
+
+    return True
+
+
+
 def process_blurring_request(message):
     """Kafka 메시지에서 split 요청을 처리"""
     try:
-        uuid = message.get("requestId")
+        uuid = message.get("video_id")
         bucket_name = message.get("bucket_name", "di-bucket")
         output_dir = os.path.join("output", uuid)
 
@@ -29,9 +64,14 @@ def process_blurring_request(message):
         # 파일 경로 설정
         original_local_path = os.path.join(output_dir, "original.mp4")
         processed_local_path = os.path.join(output_dir, "processed.mp4")
+        metadata_local_path = os.path.join(output_dir, "metadata.json")
 
         print("Processing split operation...")
 
+        # TODO: mp4 확장자가 아니라면 ffmpeg로 변경 해주는 함수 (opencv가 mp4, avi 등 일부 확장자에서만 작동, mkv, mov, webm은 실패할 확률 높음)
+        # convert_to_mp4
+
+        # temp 디렉토리 생성 (없으면 생성)
         # 원본 영상 다운로드
         download_from_minio(f"{uuid}/original.mp4", original_local_path)
 
@@ -39,7 +79,11 @@ def process_blurring_request(message):
         target_image_local_path = os.path.join(output_dir, "target_images")
         os.makedirs(target_image_local_path, exist_ok=True)
 
-        download_from_minio(f"{uuid}/target", target_image_local_path)
+        download_success = download_target_images_from_minio(uuid, target_image_local_path)
+
+        if not download_success:
+            logger.error("Failed to download target images from MinIO.")
+            return {"status": "error", "message": "Failed to download target images from MinIO"}
 
         # target_images 디렉토리에서 모든 이미지 파일 가져오기
         reference_image_paths = glob.glob(os.path.join(target_image_local_path, "*"))
@@ -61,23 +105,47 @@ def process_blurring_request(message):
             return {"status": "error", "message": "No valid reference encodings available"}
 
         # 영상 처리 및 JSON 생성
-        json_output_path = process_video(original_local_path, processed_local_path, reference_encodings)
+        json_output_path, total_frames, fps, width, height, duration = process_video(original_local_path, processed_local_path, reference_encodings)
 
         # 처리된 영상 및 JSON 업로드
         upload_to_minio(processed_local_path, f"{uuid}/processed.mp4")
         upload_to_minio(json_output_path, f"{uuid}/metadata.json")
 
+
         return {
             "status": "success",
-            "uuid": uuid,
-            "processed_video_url": f"http://localhost:9000/{bucket_name}/{uuid}/processed.mp4",
-            "metadata_url": f"http://localhost:9000/{bucket_name}/{uuid}/metadata.json",
-            "message": "Video processed and uploaded"
+            "video_id": uuid,
+            "processed_video_url": f"http://localhost:9000/{BUCKET_NAME}/{uuid}/processed.mp4",
+            "metadata_url": f"http://localhost:9000/{BUCKET_NAME}/{uuid}/metadata.json",
+            "message": "Video processed and uploaded",
+            "video_metadata": {
+                "width": width,
+                "height": height,
+                "total_frames": total_frames,
+                "fps": fps,
+                "duration": duration
+            }
         }
 
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+        # return ProcessedVideoResult(
+        #     status = "success",
+        #     video_id = uuid,
+        #     processed_video_url = f"http://localhost:9000/{BUCKET_NAME}/{uuid}/processed.mp4",
+        #     metadata_url = f"http://localhost:9000/{BUCKET_NAME}/{uuid}/metadata.json",
+        #     message = "Video processed and uploaded",
+        #     video_metadata = VideoMetadata(width=width, height=height,total_frames=total_frames, fps=fps, duration=duration)
+        #
+        # )
 
+    except Exception as e:
+        return ProcessedVideoResult(
+            status="error",
+            video_id=uuid,
+            processed_video_url="",
+            metadata_url="",
+            message=str(e),
+            video_metadata=VideoMetadata(width=0, height=0, fps=0, total_frames=0, duration=0.0)
+        )
 
 def process_video(input_path, output_path, reference_encodings, tolerance=0.55):
     """split 시 원본 영상을 처리하여 processed.mp4 및 metadata.json 생성"""
@@ -90,14 +158,16 @@ def process_video(input_path, output_path, reference_encodings, tolerance=0.55):
         return None
 
     # FFmpeg을 사용하여 총 프레임 수 가져오기
-    total_frames = get_frame_count_ffprobe(input_path)
+    total_frames, duration = get_video_info_ffprobe(input_path)
+    # total_frames = 1
+    # duration = 1.1
 
     # 비디오 정보 가져오기
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = int(cap.get(cv2.CAP_PROP_FPS))
 
-    print(f"📌 영상 정보: 총 {total_frames} 프레임, FPS: {fps}, 해상도: {width}x{height}")
+    print(f"📌 영상 정보: 총 {total_frames} 프레임, 영상 길이 : {duration} ,FPS: {fps}, 해상도: {width}x{height}")
 
     # 저장할 비디오 설정
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -148,10 +218,10 @@ def process_video(input_path, output_path, reference_encodings, tolerance=0.55):
     # JSON 데이터 저장
     json_output_path = output_path.replace(".mp4", ".json")
     with open(json_output_path, "w") as json_file:
-        json.dump({"sequence": sequence_data, "total_frames": total_frames, "fps": fps}, json_file, indent=4)
+        json.dump({"sequence": sequence_data, "total_frames": total_frames, "fps": fps, "width" : width, "height" : height, "duration" : duration}, json_file, indent=4)
 
     logger.debug(f"Processed video saved as {output_path}")
     logger.debug(f"JSON metadata saved as {json_output_path}")
 
-    return json_output_path
+    return json_output_path, total_frames, fps, width, height, duration
 
