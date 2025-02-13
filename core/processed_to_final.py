@@ -16,7 +16,7 @@ logger = setup_logging()
 def process_finalize_request(message):
     """Kafka 메시지에서 merge 요청을 처리"""
     try:
-        uuid = message.get("requestId")
+        uuid = message.get("video_id")
         bucket_name = message.get("bucket_name", "di-bucket")
         output_dir = os.path.join("output", uuid)
 
