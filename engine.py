@@ -21,7 +21,7 @@ def consume_timeline():
             print(f"Received timeline message: {message.value}")
             input_source = message.value.get('url')
             bucket_name = message.value.get('bucket')
-            video_id = message.value.get('requestId', 'default')
+            video_id = message.value.get('video_id', 'default')
 
             if not input_source or not bucket_name:
                 raise ValueError("Missing input_source or bucket_name")

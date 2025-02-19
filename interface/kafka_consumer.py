@@ -1,13 +1,10 @@
 import json
-import threading
-from dataclasses import asdict
+from multiprocessing import Process
 
 from kafka import KafkaConsumer, KafkaProducer
+
 from core.original_to_processed import process_blurring_request
-from core.processed_to_final import process_finalize_request
-from model.complete_message import CompleteVideoResult
-from model.processed_message import ProcessedVideoResult
-from multiprocessing import Process
+from core.processed_to_final import finalize_video
 
 # Kafka 설정
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
@@ -56,26 +53,26 @@ def consume_kafka_messages(group_id, request_topic, response_topic):
         request_topic,
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         group_id=group_id,
-        value_deserializer=lambda m: json.loads(m.decode("utf-8"))
+        value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+        max_poll_interval_ms=1200000,  # 10분(기본값: 300000ms = 5분)
     )
 
     print(f"[{group_id}] Listening on {request_topic}...")
 
     for message in consumer:
-        msg_value = message.value
-        print(f"[{group_id}] Received message: {msg_value}")
+        print(f"[{group_id}] Received message: {message.value}")
 
         if group_id == "video-processing-group":  # split 요청 처리
-            result = process_blurring_request(msg_value)
+            result = process_blurring_request(message.value)
         elif group_id == "video-finalize-group":  # merge 요청 처리
-            result = process_finalize_request(msg_value)
+            result = finalize_video(message.value)
         else:
             result = {"status": "error", "message": "Invalid group_id"}
 
         # 결과를 Kafka Producer로 응답 토픽에 전송
         send_message(response_topic, result)
 
-#
+
 # def start_kafka_consumers():
 #     """여러 Kafka Consumer를 개별 스레드에서 실행"""
 #     threads = []
