@@ -5,6 +5,8 @@ from kafka import KafkaConsumer, KafkaProducer
 
 from core.original_to_processed import process_blurring_request
 from core.processed_to_final import finalize_video
+from model.complete_message import CompleteVideoResult
+from model.processed_message import ProcessedVideoResult
 
 # Kafka 설정
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
@@ -43,8 +45,11 @@ def process_kafka_message(group_id, message):
 
 def send_message(topic, message):
     """Kafka Producer: 지정된 토픽으로 메시지 전송"""
+    if isinstance(message, (ProcessedVideoResult, CompleteVideoResult)):
+        message = message.to_dict()  # JSON 직렬화 가능하도록 변환
     producer.send(topic, value=message)
     print(f"Sent message to {topic}: {message}")
+
 
 
 def consume_kafka_messages(group_id, request_topic, response_topic):

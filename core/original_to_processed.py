@@ -53,11 +53,11 @@ def process_blurring_request(message):
             logger.debug(f"얼굴 인코딩 로드 완료 : {reference_image_path}")
 
         # 영상 처리 및 JSON 생성
-        metadata_result = process_video(original_local_path, processed_local_path, reference_encodings)
+        json_output_path, total_frames, fps, width, height, duration = process_video(original_local_path, processed_local_path, reference_encodings)
 
         # 처리된 영상 및 JSON 업로드
         upload_to_minio(processed_local_path, f"{video_id}/processed.mp4")
-        upload_to_minio(metadata_result.json_output_path, f"{video_id}/metadata.json")
+        upload_to_minio(json_output_path, f"{video_id}/metadata.json")
 
 
         return {
