@@ -37,7 +37,7 @@ def process_blurring_request(message):
         os.makedirs(target_image_local_path, exist_ok=True)
 
         # target_images 디렉토리에서 모든 이미지 파일 가져오기
-        processed_local_path = os.path.join(output_dir, "processed.mp4")
+        # processed_local_path = os.path.join(output_dir, "processed.mp4")
         reference_image_paths = glob.glob(os.path.join(target_image_local_path, "*"))
         reference_encodings = []
 
@@ -53,10 +53,10 @@ def process_blurring_request(message):
             logger.debug(f"얼굴 인코딩 로드 완료 : {reference_image_path}")
 
         # 영상 처리 및 JSON 생성
-        json_output_path, total_frames, fps, width, height, duration = process_video(original_local_path, processed_local_path, reference_encodings)
+        json_output_path, total_frames, fps, width, height, duration = process_video(original_local_path, reference_encodings)
 
         # 처리된 영상 및 JSON 업로드
-        upload_to_minio(processed_local_path, f"{video_id}/processed.mp4")
+        # upload_to_minio(processed_local_path, f"{video_id}/processed.mp4")
         upload_to_minio(json_output_path, f"{video_id}/metadata.json")
 
 
@@ -160,7 +160,6 @@ def process_video(input_path, output_path, reference_encodings, tolerance=0.8):
     with open(json_output_path, "w") as json_file:
         json.dump({"sequence": sequence_data, "total_frames": total_frames, "fps": fps, "width" : width, "height" : height, "duration" : duration}, json_file, indent=4)
 
-    logger.debug(f"Processed video saved as {output_path}")
     logger.debug(f"JSON metadata saved as {json_output_path}")
 
     return json_output_path, total_frames, fps, width, height, duration
