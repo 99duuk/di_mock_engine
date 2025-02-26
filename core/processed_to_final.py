@@ -9,16 +9,40 @@ from util.log_util import setup_logging
 logger = setup_logging()
 
 
+# def apply_mosaic(frame, boxes):
+#     """지정된 영역에 모자이크 적용"""
+#     for box in boxes:
+#         x1, y1, x2, y2 = box["x1"], box["y1"], box["x2"], box["y2"]
+#         roi = frame[y1:y2, x1:x2]
+#         mosaic_size = (10, 10)  # 모자이크 크기 조절 가능
+#         roi = cv2.resize(roi, mosaic_size, interpolation=cv2.INTER_LINEAR)
+#         roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)
+#         frame[y1:y2, x1:x2] = roi
+#     return frame
 def apply_mosaic(frame, boxes):
-    """지정된 영역에 모자이크 적용"""
+    """지정된 영역에 모자이크 적용 (좌표 검증 포함)"""
     for box in boxes:
         x1, y1, x2, y2 = box["x1"], box["y1"], box["x2"], box["y2"]
+
+        # 좌표가 유효한지 검증
+        if x1 >= x2 or y1 >= y2:
+            logger.warning(f"Invalid box coordinates: {box}")
+            continue
+        if x1 < 0 or y1 < 0 or x2 > frame.shape[1] or y2 > frame.shape[0]:
+            logger.warning(f"Box out of bounds: {box}, frame size: {frame.shape}")
+            continue
+
         roi = frame[y1:y2, x1:x2]
-        mosaic_size = (10, 10)  # 모자이크 크기 조절 가능
+        if roi.size == 0:
+            logger.warning(f"Empty ROI for box: {box}")
+            continue
+
+        mosaic_size = (10, 10)
         roi = cv2.resize(roi, mosaic_size, interpolation=cv2.INTER_LINEAR)
         roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)
         frame[y1:y2, x1:x2] = roi
     return frame
+
 
 
 def finalize_video(message, bucket_name="di-bucket"):
@@ -39,6 +63,8 @@ def finalize_video(message, bucket_name="di-bucket"):
         # 메타데이터 로드
         with open(metadata_path) as f:
             metadata = json.load(f)
+
+        print("Loaded metadata:", json.dumps(metadata, indent=4)[:500])  # 처음 500글자만 출력
 
         cap = cv2.VideoCapture(original_video)
         fps = int(cap.get(cv2.CAP_PROP_FPS))
