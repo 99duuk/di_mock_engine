@@ -63,7 +63,6 @@ def process_blurring_request(message):
         return {
             "status": "success",
             "video_id": video_id,
-            "processed_video_url": f"http://localhost:9000/{BUCKET_NAME}/{video_id}/processed.mp4",
             "metadata_url": f"http://localhost:9000/{BUCKET_NAME}/{video_id}/metadata.json",
             "message": "Video processed and uploaded",
             "video_metadata": {
@@ -79,13 +78,12 @@ def process_blurring_request(message):
         return ProcessedVideoResult(
             status="error",
             video_id=video_id,
-            processed_video_url="",
             metadata_url="",
             message=str(e),
             video_metadata=VideoMetadata(width=0, height=0, fps=0, total_frames=0, duration=0.0)
         )
 
-def process_video(input_path, output_path, reference_encodings, tolerance=0.8):
+def process_video(input_path, reference_encodings, tolerance=0.8):
     """split 시 원본 영상을 처리하여 processed.mp4 및 metadata.json 생성"""
     state_manager.frames = []  # 프레임 리스트 초기화
     state_manager.processed_frames = []  # 편집된 프레임 리스트 초기화
@@ -106,8 +104,8 @@ def process_video(input_path, output_path, reference_encodings, tolerance=0.8):
     print(f"영상 정보: 총 {total_frames} 프레임, 영상 길이 : {duration} ,FPS: {fps}, 해상도: {width}x{height}")
 
     # 저장할 비디오 설정
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    # fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    # out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     sequence_data = []  # JSON 저장을 위한 데이터
 
@@ -150,13 +148,13 @@ def process_video(input_path, output_path, reference_encodings, tolerance=0.8):
 
         if frame_info["person"]:
             sequence_data.append(frame_info)
-        out.write(frame)
+        # out.write(frame)
 
     cap.release()
-    out.release()
+    # out.release()
 
     # JSON 데이터 저장
-    json_output_path = output_path.replace(".mp4", ".json")
+    json_output_path = input_path.replace(".mp4", ".json")
     with open(json_output_path, "w") as json_file:
         json.dump({"sequence": sequence_data, "total_frames": total_frames, "fps": fps, "width" : width, "height" : height, "duration" : duration}, json_file, indent=4)
 
