@@ -1,5 +1,5 @@
 import json
-from multiprocessing import Process
+import logging
 
 from kafka import KafkaConsumer, KafkaProducer
 
@@ -10,6 +10,9 @@ from model.processed_message import ProcessedVideoResult
 
 # Kafka 설정
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
+
+# Kafka 로깅 레벨 설정 (INFO 로그 비활성화)
+logging.getLogger("kafka").setLevel(logging.WARNING)
 
 # Consumer Group & Topics 정의
 KAFKA_GROUPS = {
@@ -23,7 +26,7 @@ KAFKA_GROUPS = {
     }
 }
 
-# Kafka Producer (모든 그룹에서 공통 사용)
+# Kafka Producer (전역 인스턴스)
 producer = KafkaProducer(
     bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
     value_serializer=lambda m: json.dumps(m).encode("utf-8")

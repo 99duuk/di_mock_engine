@@ -21,9 +21,6 @@ logger.setLevel(logging.DEBUG)
 device = 'mps' if torch.backends.mps.is_available() else 'cpu'
 print(f"Using device: {device}")
 
-# YOLO 및 FaceMesh 모델 가져오기
-# model = ModelLoader.get_yolo_model()
-# mp_face_mesh = ModelLoader.get_mp_face_mesh()
 def print_progress(video_id, frame_seq, total_frames):
     """진행 상황을 한 줄에서 퍼센트와 진행 바로 업데이트"""
     progress = (frame_seq / total_frames) * 100
