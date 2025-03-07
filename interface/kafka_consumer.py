@@ -1,4 +1,5 @@
 import json
+import logging
 from multiprocessing import Process
 
 from kafka import KafkaConsumer, KafkaProducer
@@ -10,6 +11,9 @@ from model.processed_message import ProcessedVideoResult
 
 # Kafka 설정
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
+
+# Kafka 로깅 레벨 설정 (INFO 로그 비활성화)
+logging.getLogger("kafka").setLevel(logging.WARNING)
 
 # Consumer Group & Topics 정의
 KAFKA_GROUPS = {
@@ -77,22 +81,6 @@ def consume_kafka_messages(group_id, request_topic, response_topic):
         # 결과를 Kafka Producer로 응답 토픽에 전송
         send_message(response_topic, result)
 
-
-# def start_kafka_consumers():
-#     """여러 Kafka Consumer를 개별 스레드에서 실행"""
-#     threads = []
-#
-#     for group_id, topics in KAFKA_GROUPS.items():
-#         thread = threading.Thread(
-#             target=consume_kafka_messages,
-#             args=(group_id, topics["request_topic"], topics["response_topic"]),
-#             daemon=True
-#         )
-#         threads.append(thread)
-#         thread.start()
-#         print(f"Started Kafka Consumer for {group_id}")
-#
-#     return threads
 
 def start_kafka_consumers():
     """여러 Kafka Consumer를 개별 프로세스로 실행"""
