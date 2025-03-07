@@ -1,5 +1,6 @@
 import glob
 import json
+import logging
 import os
 
 import cv2
@@ -11,6 +12,16 @@ from model.processed_message import ProcessedVideoResult, VideoMetadata
 from util.ffmpeg import get_video_info_ffprobe
 from util.model_loader import ModelLoader
 from util.state_manager import state_manager
+
+logger.setLevel(logging.DEBUG)
+def print_progress(video_id, frame_seq, total_frames):
+    """진행 상황을 한 줄에서 퍼센트와 진행 바로 업데이트"""
+    progress = (frame_seq / total_frames) * 100
+    bar_length = 30  # 진행 바 길이
+    filled_length = int(bar_length * frame_seq // total_frames)
+    bar = "#" * filled_length + " " * (bar_length - filled_length)
+    # \r로 한 줄에서 업데이트
+    print(f"\r==> Processing {video_id}... {bar} {progress:.1f}%", end="", flush=True)
 
 # YOLO 및 FaceMesh 모델 가져오기
 model = ModelLoader.get_yolo_model()
@@ -101,11 +112,8 @@ def process_video(input_path, reference_encodings, tolerance=0.8):
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = int(cap.get(cv2.CAP_PROP_FPS))
 
+    video_id = os.path.basename(input_path).replace(".mp4", "")  # video_id 추출
     print(f"영상 정보: 총 {total_frames} 프레임, 영상 길이 : {duration} ,FPS: {fps}, 해상도: {width}x{height}")
-
-    # 저장할 비디오 설정
-    # fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    # out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     sequence_data = []  # JSON 저장을 위한 데이터
 
@@ -117,8 +125,9 @@ def process_video(input_path, reference_encodings, tolerance=0.8):
 
         frame_seq += 1  # 정확한 프레임 번호 유지
         frame_info = {"seq": frame_seq, "person": []}
-        print(f"current seq: {frame_seq}, total seq: {total_frames}")
-        results = model(frame, conf=0.4)  # YOLO 감지 실행
+        print_progress(video_id, frame_seq, total_frames)
+        # print(f"current seq: {frame_seq}, total seq: {total_frames}")
+        results = model(frame, conf=0.4, verbose=False)  # YOLO 감지 실행
         detections = results[0].boxes
 
         for detection in detections:
