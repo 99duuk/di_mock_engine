@@ -1,14 +1,18 @@
+import os
 import time
 
-from interface.kafka_consumer import start_kafka_consumers, send_message
+from interface.kafka_consumer import start_kafka_consumers
 
 import multiprocessing
-#
+
+from util.model_loader import ModelLoader
 # if __name__ == "__main__":
-#     multiprocessing.set_start_method("spawn")  # fork 대신 spawn 사용
+#     # 멀티프로세싱을 위해 spawn 방식 사용
+#     from multiprocessing import set_start_method
+#     set_start_method("spawn", force=True)
 #
-#     # Kafka Consumer 시작 (멀티스레드)
-#     threads = start_kafka_consumers()
+#     # Kafka Consumer 시작
+#     processes = start_kafka_consumers()
 #
 #     try:
 #         while True:
@@ -16,14 +20,22 @@ import multiprocessing
 #     except KeyboardInterrupt:
 #         print("\nShutting down...")
 #
-#     # 모든 스레드 종료 대기
-#     for thread in threads:
-#         thread.join()
+#     # 모든 프로세스 종료 대기
+#     for process in processes:
+#         process.join()
+
+# MPS 관련 환경 변수 설정
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 
 if __name__ == "__main__":
-    multiprocessing.set_start_method("spawn")  # 중요!
+    multiprocessing.set_start_method("spawn", force=True)
 
+    # 필요 시 메인 프로세스에서 모델 초기화, 또는 자식 프로세스가 처리
+    model = ModelLoader.get_yolo_model()
+    interpreter = ModelLoader.get_tflite_face_mesh()
+
+    # Kafka 소비자 시작
     processes = start_kafka_consumers()
 
     try:
@@ -32,6 +44,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nShutting down...")
 
-    # 모든 프로세스 종료 대기
     for process in processes:
         process.join()

@@ -1,5 +1,10 @@
+import os
+import logging
+from minio.error import S3Error
 from minio import Minio
 from six import BytesIO
+
+logger = logging.getLogger(__name__)
 
 # MinIO 클라이언트 생성
 minio_client = Minio(
@@ -50,30 +55,31 @@ def upload_memory_to_minio(object_name, buffer):
         raise
 
 
+def download_images_from_minio_folder(uuid, folder_name, local_path):
+    """MinIO에서 특정 폴더 내 모든 이미지 다운로드"""
+    try:
+        # MinIO 버킷 내 지정된 폴더의 파일 리스트 가져오기
+        objects = minio_client.list_objects(BUCKET_NAME, prefix=f"{uuid}/{folder_name}/", recursive=True)
 
+        # 디렉토리 생성
+        os.makedirs(local_path, exist_ok=True)
 
-#
-#
-# def download_stream_from_minio(object_name):
-#     """MinIO에서 스트리밍으로 파일을 다운로드"""
-#     try:
-#         response = minio_client.get_object(BUCKET_NAME, object_name)
-#         return response  # 스트리밍 객체 반환 (BytesIO 아님)
-#     except Exception as e:
-#         print(f"Error downloading {object_name} from MinIO: {e}")
-#         raise
-#
-#
-# def upload_stream_to_minio(object_name, file_obj, size):
-#     """MinIO에 스트리밍으로 파일 업로드"""
-#     try:
-#         minio_client.put_object(
-#             BUCKET_NAME,
-#             object_name,
-#             data=file_obj,
-#             length=size
-#         )
-#         print(f"Uploaded {object_name} to MinIO")
-#     except Exception as e:
-#         print(f"Error uploading to MinIO: {e}")
-#         raise
+        for obj in objects:
+            if obj.is_dir:
+                continue  # 디렉토리는 건너뜀
+
+            # 개별 파일 다운로드
+            file_name = os.path.basename(obj.object_name)
+            local_file_path = os.path.join(local_path, file_name)
+            minio_client.fget_object(BUCKET_NAME, obj.object_name, local_file_path)
+
+            logger.info(f"Downloaded {obj.object_name} to {local_file_path}")
+
+    except S3Error as e:
+        logger.error(f"MinIO download error: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error while downloading images: {e}")
+        return False
+
+    return True

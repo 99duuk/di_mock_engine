@@ -87,7 +87,6 @@ def finalize_video(message, bucket_name="di-bucket"):
             # 프레임 번호에 해당하는 'person' 정보 가져오기
             frame_seq += 1
             boxes = next((seq["person"] for seq in metadata["sequence"] if seq.get("seq") == frame_seq), [])
-            # boxes = next((seq["person"] for seq in metadata["sequence"] if seq["seq"] == frame_seq), None)4
 
 
             if boxes:

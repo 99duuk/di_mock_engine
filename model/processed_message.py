@@ -13,7 +13,6 @@ class VideoMetadata:
 class ProcessedVideoResult:
     status: str
     video_id: str
-    processed_video_url: str
     metadata_url: str
     message: str
     video_metadata: VideoMetadata

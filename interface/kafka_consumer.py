@@ -47,64 +47,101 @@ def send_message(topic, message):
     """Kafka Producer: 지정된 토픽으로 메시지 전송"""
     if isinstance(message, (ProcessedVideoResult, CompleteVideoResult)):
         message = message.to_dict()  # JSON 직렬화 가능하도록 변환
+    producer = KafkaProducer(
+        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+        value_serializer=lambda m: json.dumps(m).encode("utf-8")
+    )
     producer.send(topic, value=message)
+    producer.flush()
     print(f"Sent message to {topic}: {message}")
 
+import threading
 
 
-def consume_kafka_messages(group_id, request_topic, response_topic):
-    """Kafka Consumer 실행 → 메시지를 처리한 후 응답을 Kafka에 전송"""
-    consumer = KafkaConsumer(
-        request_topic,
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        group_id=group_id,
-        value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-        max_poll_interval_ms=1200000,  # 10분(기본값: 300000ms = 5분)
-    )
+def consumer_thread_function(group_id, request_topic, response_topic, model, interpreter):
+    """스레드에서 실행되는 Kafka 소비자 함수"""
+    print(f"[{group_id}] 스레드 시작")
 
-    print(f"[{group_id}] Listening on {request_topic}...")
+    try:
+        # Kafka 소비자 설정
+        consumer = KafkaConsumer(
+            request_topic,
+            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+            group_id=group_id,
+            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+            max_poll_interval_ms=1200000,
+            auto_offset_reset='earliest',
+        )
 
-    for message in consumer:
-        print(f"[{group_id}] Received message: {message.value}")
+        print(f"[{group_id}] {request_topic} 토픽 리스닝 중...")
 
-        if group_id == "video-processing-group":  # split 요청 처리
-            result = process_blurring_request(message.value)
-        elif group_id == "video-finalize-group":  # merge 요청 처리
-            result = finalize_video(message.value)
-        else:
-            result = {"status": "error", "message": "Invalid group_id"}
+        # 메시지 처리 루프
+        for message in consumer:
+            print(f"[{group_id}] 메시지 수신: {message.value}")
+            try:
+                if group_id == "video-processing-group":
+                    result = process_blurring_request(message.value, model=model, interpreter=interpreter)
+                elif group_id == "video-finalize-group":
+                    result = finalize_video(message.value)
+                else:
+                    result = {"status": "error", "message": "유효하지 않은 group_id"}
 
-        # 결과를 Kafka Producer로 응답 토픽에 전송
-        send_message(response_topic, result)
+                send_message(response_topic, result)
 
+            except Exception as e:
+                print(f"[{group_id}] 메시지 처리 오류: {e}")
+                import traceback
+                traceback.print_exc()
+                send_message(response_topic, {"status": "error", "message": str(e)})
 
-# def start_kafka_consumers():
-#     """여러 Kafka Consumer를 개별 스레드에서 실행"""
-#     threads = []
-#
-#     for group_id, topics in KAFKA_GROUPS.items():
-#         thread = threading.Thread(
-#             target=consume_kafka_messages,
-#             args=(group_id, topics["request_topic"], topics["response_topic"]),
-#             daemon=True
-#         )
-#         threads.append(thread)
-#         thread.start()
-#         print(f"Started Kafka Consumer for {group_id}")
-#
-#     return threads
+    except Exception as e:
+        print(f"[{group_id}] 스레드 실행 중 오류: {e}")
+        import traceback
+        traceback.print_exc()
+
 
 def start_kafka_consumers():
-    """여러 Kafka Consumer를 개별 프로세스로 실행"""
-    processes = []
+    """여러 Kafka 소비자 스레드를 시작합니다"""
+    threads = []
 
-    for group_id, topics in KAFKA_GROUPS.items():
-        process = Process(
-            target=consume_kafka_messages,
-            args=(group_id, topics["request_topic"], topics["response_topic"])
+    # 메인 프로세스에서 모델 초기화 (모든 스레드에서 공유)
+    from util.model_loader import ModelLoader
+    print("메인 프로세스에서 모델 로딩 중...")
+    model = ModelLoader.get_yolo_model()
+    interpreter = ModelLoader.get_tflite_face_mesh()
+    print("모델 로딩 완료")
+
+    # 비디오 처리 스레드
+    print("비디오 처리 스레드 시작 중...")
+    video_thread = threading.Thread(
+        target=consumer_thread_function,
+        args=(
+            "video-processing-group",
+            KAFKA_GROUPS["video-processing-group"]["request_topic"],
+            KAFKA_GROUPS["video-processing-group"]["response_topic"],
+            model,
+            interpreter
         )
-        processes.append(process)
-        process.start()
-        print(f"Started Kafka Consumer process for {group_id}")
+    )
+    video_thread.daemon = True
+    video_thread.start()
+    threads.append(video_thread)
 
-    return processes
+    # 비디오 최종화 스레드
+    print("비디오 최종화 스레드 시작 중...")
+    finalize_thread = threading.Thread(
+        target=consumer_thread_function,
+        args=(
+            "video-finalize-group",
+            KAFKA_GROUPS["video-finalize-group"]["request_topic"],
+            KAFKA_GROUPS["video-finalize-group"]["response_topic"],
+            model,
+            interpreter
+        )
+    )
+    finalize_thread.daemon = True
+    finalize_thread.start()
+    threads.append(finalize_thread)
+
+    print(f"총 {len(threads)}개 Kafka 소비자 스레드 시작됨")
+    return threads
