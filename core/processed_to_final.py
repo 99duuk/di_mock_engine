@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 
 import cv2
 
@@ -9,16 +10,6 @@ from util.log_util import setup_logging
 logger = setup_logging()
 
 
-# def apply_mosaic(frame, boxes):
-#     """지정된 영역에 모자이크 적용"""
-#     for box in boxes:
-#         x1, y1, x2, y2 = box["x1"], box["y1"], box["x2"], box["y2"]
-#         roi = frame[y1:y2, x1:x2]
-#         mosaic_size = (10, 10)  # 모자이크 크기 조절 가능
-#         roi = cv2.resize(roi, mosaic_size, interpolation=cv2.INTER_LINEAR)
-#         roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)
-#         frame[y1:y2, x1:x2] = roi
-#     return frame
 def apply_mosaic(frame, boxes):
     """지정된 영역에 모자이크 적용 (좌표 검증 포함)"""
     for box in boxes:
@@ -100,6 +91,10 @@ def finalize_video(message, bucket_name="di-bucket"):
         # 최종 비디오 업로드
         upload_to_minio(final_output_path, f"{video_id}/final.mp4")
 
+        # 작업 완료 후 output 디렉터리 삭제
+        shutil.rmtree(output_dir)
+        logger.info(f"Deleted temporary directory: {output_dir}")
+
         return {
             "status": "success",
             "video_id": video_id,
@@ -109,4 +104,8 @@ def finalize_video(message, bucket_name="di-bucket"):
 
     except Exception as e:
         logger.error(f"Error processing video {video_id}: {str(e)}")
+        # 예외 발생 시에도 디렉터리 삭제 시도
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir, ignore_errors=True)
+            logger.info(f"Deleted temporary directory on error: {output_dir}")
         return {"status": "error", "video_id": video_id, "message": str(e)}

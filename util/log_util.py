@@ -10,7 +10,6 @@ def setup_logging():
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler('video_processing.log')
         ]
     )
     return logging.getLogger(__name__)

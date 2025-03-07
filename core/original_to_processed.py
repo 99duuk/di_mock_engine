@@ -2,6 +2,7 @@ import glob
 import json
 import logging
 import os
+import shutil
 
 import cv2
 import face_recognition
@@ -23,6 +24,14 @@ print(f"Using device: {device}")
 # YOLO 및 FaceMesh 모델 가져오기
 # model = ModelLoader.get_yolo_model()
 # mp_face_mesh = ModelLoader.get_mp_face_mesh()
+def print_progress(video_id, frame_seq, total_frames):
+    """진행 상황을 한 줄에서 퍼센트와 진행 바로 업데이트"""
+    progress = (frame_seq / total_frames) * 100
+    bar_length = 30  # 진행 바 길이
+    filled_length = int(bar_length * frame_seq // total_frames)
+    bar = "#" * filled_length + " " * (bar_length - filled_length)
+    # \r로 한 줄에서 업데이트
+    print(f"\r==> Processing {video_id}... {bar} {progress:.1f}%", end="", flush=True)
 
 def process_blurring_request(message, model, interpreter):
     """Kafka 메시지에서 split 요청을 처리"""
@@ -67,6 +76,10 @@ def process_blurring_request(message, model, interpreter):
         # 처리된 영상 및 JSON 업로드
         upload_to_minio(json_output_path, f"{video_id}/metadata.json")
 
+        # 작업 완료 후 output 디렉터리 삭제
+        shutil.rmtree(output_dir)
+        logger.debug(f"Deleted temporary directory: {output_dir}")
+
         return {
             "status": "success",
             "video_id": video_id,
@@ -82,6 +95,10 @@ def process_blurring_request(message, model, interpreter):
         }
 
     except Exception as e:
+        # 예외 발생 시에도 디렉터리 삭제 시도
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir, ignore_errors=True)
+            logger.debug(f"Deleted temporary directory on error: {output_dir}")
         return ProcessedVideoResult(
             status="error",
             video_id=video_id,
@@ -90,14 +107,8 @@ def process_blurring_request(message, model, interpreter):
             video_metadata=VideoMetadata(width=0, height=0, fps=0, total_frames=0, duration=0.0),
         )
 
-# interpreter = ModelLoader.get_tflite_face_mesh()
-# input_details = interpreter.get_input_details()
-# output_details = interpreter.get_output_details()
-
 def process_frame_with_reference(frame, detections, reference_encodings, width, height, interpreter, tolerance=0.6):
     """참조 이미지가 있을 때 프레임 처리"""
-    print(f"interpreter type: {type(interpreter)}")  # 디버깅용 출력
-    print(f"interpreter value: {interpreter}")  # 값 확인
     frame_info = {"person": []}
 
     # FaceMesh 입력 전처리
@@ -160,6 +171,7 @@ def process_video(input_path, reference_encodings=None, model=None, interpreter=
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = int(cap.get(cv2.CAP_PROP_FPS))
 
+    video_id = os.path.basename(input_path).replace(".mp4", "")  # video_id 추출
     print(f"영상 정보: 총 {total_frames} 프레임, 영상 길이 : {duration} ,FPS: {fps}, 해상도: {width}x{height}")
 
     sequence_data = []  # JSON 저장을 위한 데이터
@@ -171,9 +183,10 @@ def process_video(input_path, reference_encodings=None, model=None, interpreter=
             break
 
         frame_seq += 1
-        print(f"current seq: {frame_seq}, total seq: {total_frames}")
+        print_progress(video_id, frame_seq, total_frames)
+        # print(f"current seq: {frame_seq}, total seq: {total_frames}")
 
-        results = model(frame, conf=0.4)  # YOLO 감지 실행
+        results = model(frame, conf=0.4, verbose=False)  # YOLO 감지 실행
         detections = results[0].boxes
 
         # 참조 이미지 유무에 따라 다른 처리 함수 호출
